@@ -1,4 +1,4 @@
-import { FamilyOfBodies, type BodyParser, type HeaderInput, type RetryableBoom, type TimeoutController } from "./core/types.js";
+import { FamilyOfBodies, HttpMethod, type BodyParser, type HeaderInput, type HttpContext, type HttpMiddleware, type RetryableBoom, type TimeoutController } from "./core/types.js";
 
 
 export class HttpClient {
@@ -6,89 +6,66 @@ export class HttpClient {
     //! Configurable by override
 
     protected static baseUrl = '';
-    protected static retries = 2;
-    protected static timeout = 1000;
-    protected static retryDelay = 300;
     protected static defaultErrorMessage = 'Error en peticion HTTP';
-
-    protected static retryMethods = ['GET', 'HEAD', 'OPTIONS'];
+    
+    protected static middlewares: HttpMiddleware[] = [];
 
     protected static headers = (): Headers => new Headers({
         'Accept': 'application/json'
     });
 
 
-    protected static async beforeRequest(init: RequestInit): Promise<RequestInit> {
-        return init;
+    //! Middlware Management
+
+    protected static use(middleware: HttpMiddleware): void {
+        this.middlewares.push(middleware);
     }
 
-    protected static async afterResponse(res: Response): Promise<Response> {
-        return res;
+
+    protected static async runPipeline(ctx: HttpContext): Promise<Response> {
+        const stack = this.middlewares;
+
+        let index = -1;
+
+        const dispatch = async (i: number): Promise<Response> => {
+            if (i <= index)
+                throw new Error("next() called multiple times");
+
+            index = i;
+
+            const middleware = stack[i];
+
+            if (!middleware) 
+                return fetch(`${this.baseUrl}${ctx.url}`, ctx.init);
+
+            return middleware(ctx, () => dispatch(i + 1));
+        }
+
+        return dispatch(0);
     }
 
-    protected static shouldRetry(method: string) {
-        return this.retryMethods.includes(method.toUpperCase());
-    }
-
-    protected static computeBackoff (attempt: number): number {
-        const base = this.retryDelay * Math.pow(2, attempt);
-        const jitter = Math.random() * 100;
-        return base + jitter;
-    }
-
-    protected static sleep(ms: number) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
-
-    protected static createTimeoutController (): TimeoutController {
-        const controller = new AbortController();
-
-        const timer = setTimeout(() => {controller.abort()}, this.timeout);
-
-        return { controller, timer };
-    }
 
     //! Core Request
-    protected static async request<T>(method: string, url: string, body?: unknown, headers?: HeaderInput): Promise<T> {
-        let attempt = 0;
+    protected static async request<T>(method: HttpMethod, url: string, body?: unknown, headers?: HeaderInput): Promise<T> {
+        const init: RequestInit = {
+            method,
+            headers: this.mergeHeaders(headers)
+        };
 
-        while (true) {
-            const { controller, timer } = this.createTimeoutController();
-        
-            try {
-                const init: RequestInit = {
-                    method,
-                    headers: this.mergeHeaders(headers),
-                    signal: controller.signal
-                };
+        if (body !== undefined) init.body = JSON.stringify(body);
 
-                if (body !== undefined) init.body = JSON.stringify(body);
+        const ctx: HttpContext = {
+            url,
+            method,
+            attempt: 0,
+            init
+        };
 
-                const prepared = await this.beforeRequest(init);
-                
-                const res = await fetch(`${this.baseUrl}${url}`, prepared);
-                
-                const finalRes = await this.afterResponse(res);
+        const res = await this.runPipeline(ctx);
 
-                return await this.handlerResponse<T>(finalRes);
-            }
-            catch (error: any) {
-                if (attempt < this.retries && error.retryable && this.shouldRetry(method)) {
-                    const delay = this.computeBackoff(attempt);
+        ctx.response = res;
 
-                    attempt++;
-
-                    await this.sleep(delay);
-
-                    continue;
-                }
-
-                throw error;
-            }
-            finally {
-                clearTimeout(timer);
-            }
-        }
+        return await this.handlerResponse(res);
     }
 
 
@@ -182,27 +159,27 @@ export class HttpClient {
 
     //? GET
     protected static async get<T>(url: string, headers?: HeaderInput) {
-        return this.request<T>('GET', url, undefined, headers)
+        return this.request<T>(HttpMethod.GET, url, undefined, headers)
     }
 
     //? POST
     protected static async post<T>(url: string, body: unknown, headers?: HeaderInput) {
-        return this.request<T>('POST', url, body, headers);
+        return this.request<T>(HttpMethod.POST, url, body, headers);
     }
 
     //? PUT
     protected static async put<T>(url: string, body: unknown, headers?: HeaderInput) {
-        return this.request<T>('PUT', url, body, headers);
+        return this.request<T>(HttpMethod.PUT, url, body, headers);
     }
 
     //? PATCH
     protected static async patch<T>(url: string, body: unknown, headers?: HeaderInput) {
-        return this.request<T>('PATCH', url, body, headers);
+        return this.request<T>(HttpMethod.PATCH, url, body, headers);
     }
 
     //? DELETE
     protected static async delete<T>(url: string, body: unknown, headers?: HeaderInput) {
-        return this.request<T>('DELETE', url, body, headers);
+        return this.request<T>(HttpMethod.DELETE, url, body, headers);
     }
 
 
@@ -216,9 +193,9 @@ export class HttpClient {
         const message = this.getMessage(body) || this.defaultErrorMessage;
 
         const error: RetryableBoom = new Error(message);
-        
+
         error.retryable = res.status === 429 || res.status >= 500;
-    
+
         throw error;
     }
 

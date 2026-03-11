@@ -1,4 +1,4 @@
-# Http Client
+# HttpClient
 
 ![npm version](https://img.shields.io/npm/v/@manrp/http-client)
 ![node version](https://img.shields.io/node/v/@manrp/http-client)

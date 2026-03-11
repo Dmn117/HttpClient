@@ -1,4 +1,14 @@
-
+export enum HttpMethod {
+    GET = 'GET',
+    POST = 'POST',
+    PATCH = 'PATCH',
+    PUT = 'PUT',
+    DELETE = 'DELETE',
+    OPTIONS = 'OPTIONS',
+    HEAD = 'HEAD',
+    CONNECT = 'CONNECT',
+    TRACE = 'TRACE'
+}
 
 export interface RetryableBoom extends Error {
   retryable?: boolean;
@@ -40,3 +50,16 @@ export interface TimeoutController {
     controller: AbortController;
     timer: NodeJS.Timeout;
 } 
+
+
+export interface HttpContext {
+    url:        string;
+    method:     HttpMethod;
+    attempt:    number;
+    init:       RequestInit;
+    response?:  Response;
+    error?:     unknown;
+}
+
+export type NextFunction = () => Promise<Response>;
+export type HttpMiddleware = (ctx: HttpContext, next: NextFunction) => Promise<Response>;
