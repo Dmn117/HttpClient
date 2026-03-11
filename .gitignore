@@ -1,0 +1,13 @@
+/node_modules
+
+/dist
+
+/*manrp-deterministic*
+
+/temp
+
+*.env
+
+*.tgz
+
+/src/templates
