@@ -59,6 +59,7 @@ export interface HttpContext {
     init:       RequestInit;
     response?:  Response;
     error?:     unknown;
+    meta?:      Record<string, any>
 }
 
 export type NextFunction = () => Promise<Response>;

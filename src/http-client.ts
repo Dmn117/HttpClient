@@ -1,4 +1,5 @@
 import { FamilyOfBodies, HttpMethod, type BodyParser, type HeaderInput, type HttpContext, type HttpMiddleware, type RetryableBoom, type TimeoutController } from "./core/types.js";
+import { HttpMiddlewares } from "./middlewares/http-middlewares.js";
 
 
 export class HttpClient {
@@ -17,7 +18,7 @@ export class HttpClient {
 
     //! Middlware Management
 
-    protected static use(middleware: HttpMiddleware): void {
+    public static use(middleware: HttpMiddleware): void {
         this.middlewares.push(middleware);
     }
 
@@ -240,3 +241,4 @@ export class HttpClient {
         }
     };
 }
+
