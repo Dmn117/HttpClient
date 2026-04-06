@@ -8,23 +8,53 @@ export class HttpClient {
 
     protected static baseUrl = '';
     protected static defaultErrorMessage = 'Error en peticion HTTP';
-    
-    protected static middlewares: HttpMiddleware[] = [];
 
     protected static headers = (): Headers => new Headers({
         'Accept': 'application/json'
     });
 
 
-    //! Middlware Management
+    //! Middlware registries
+
+    private static globalMiddlewares: HttpMiddleware[] = [];
+
+    private static clientMiddlewares = new Map<Function, HttpMiddleware[]>();
+
+    
+    //! Middleware registration
+
+    public static useGlobal(middleware: HttpMiddleware): void {
+        this.globalMiddlewares.push(middleware);
+    }
 
     public static use(middleware: HttpMiddleware): void {
-        this.middlewares.push(middleware);
+        const stack = this.getClientStack();
+
+        stack.push(middleware);
+    }
+
+    protected static getClientStack(): HttpMiddleware[] {
+        if (!this.clientMiddlewares.has(this)) 
+            this.clientMiddlewares.set(this, []);
+
+        return this.clientMiddlewares.get(this)!;
+    }
+
+    protected static buildStack(requestStack: HttpMiddleware[] = []): HttpMiddleware[] {
+        const clientStack = this.getClientStack();
+
+        return [
+            ...HttpClient.globalMiddlewares,
+            ...clientStack,
+            ...requestStack
+        ];
     }
 
 
-    protected static async runPipeline(ctx: HttpContext): Promise<Response> {
-        const stack = this.middlewares;
+    //! Middleware Pipeline
+
+    protected static async runPipeline(ctx: HttpContext, requestStack?: HttpMiddleware[]): Promise<Response> {
+        const stack = this.buildStack(requestStack);
 
         let index = -1;
 
@@ -47,13 +77,14 @@ export class HttpClient {
 
 
     //! Core Request
-    protected static async request<T>(method: HttpMethod, url: string, body?: unknown, headers?: HeaderInput): Promise<T> {
+    protected static async request<T>(method: HttpMethod, url: string, body?: unknown, headers?: HeaderInput, middlewares?: HttpMiddleware[]): Promise<T> {
         const init: RequestInit = {
             method,
             headers: this.mergeHeaders(headers)
         };
 
-        if (body !== undefined) init.body = JSON.stringify(body);
+        if (body !== undefined) 
+            init.body = JSON.stringify(body);
 
         const ctx: HttpContext = {
             url,
@@ -62,7 +93,7 @@ export class HttpClient {
             init
         };
 
-        const res = await this.runPipeline(ctx);
+        const res = await this.runPipeline(ctx, middlewares);
 
         ctx.response = res;
 
@@ -134,7 +165,7 @@ export class HttpClient {
 
 
     //! Header Merge (Not override)
-    protected static mergeHeaders(extra?: HeaderInput): Headers {
+    private static mergeHeaders(extra?: HeaderInput): Headers {
         const headers = this.headers();
 
         if (!extra) return headers;
@@ -159,28 +190,28 @@ export class HttpClient {
     //! HTTP Verbs (Not override)
 
     //? GET
-    protected static async get<T>(url: string, headers?: HeaderInput) {
-        return this.request<T>(HttpMethod.GET, url, undefined, headers)
+    protected static async get<T>(url: string, headers?: HeaderInput, middlewares?: HttpMiddleware[]) {
+        return this.request<T>(HttpMethod.GET, url, undefined, headers, middlewares)
     }
 
     //? POST
-    protected static async post<T>(url: string, body: unknown, headers?: HeaderInput) {
-        return this.request<T>(HttpMethod.POST, url, body, headers);
+    protected static async post<T>(url: string, body: unknown, headers?: HeaderInput, middlewares?: HttpMiddleware[]) {
+        return this.request<T>(HttpMethod.POST, url, body, headers, middlewares);
     }
 
     //? PUT
-    protected static async put<T>(url: string, body: unknown, headers?: HeaderInput) {
-        return this.request<T>(HttpMethod.PUT, url, body, headers);
+    protected static async put<T>(url: string, body: unknown, headers?: HeaderInput, middlewares?: HttpMiddleware[]) {
+        return this.request<T>(HttpMethod.PUT, url, body, headers, middlewares);
     }
 
     //? PATCH
-    protected static async patch<T>(url: string, body: unknown, headers?: HeaderInput) {
-        return this.request<T>(HttpMethod.PATCH, url, body, headers);
+    protected static async patch<T>(url: string, body: unknown, headers?: HeaderInput, middlewares?: HttpMiddleware[]) {
+        return this.request<T>(HttpMethod.PATCH, url, body, headers, middlewares);
     }
 
     //? DELETE
-    protected static async delete<T>(url: string, body: unknown, headers?: HeaderInput) {
-        return this.request<T>(HttpMethod.DELETE, url, body, headers);
+    protected static async delete<T>(url: string, body: unknown, headers?: HeaderInput, middlewares?: HttpMiddleware[]) {
+        return this.request<T>(HttpMethod.DELETE, url, body, headers, middlewares);
     }
 
 
@@ -201,7 +232,7 @@ export class HttpClient {
     }
 
 
-    //! Reusable Hooks
+    //! Body extraction
 
     protected static async getBody(res: Response): Promise<any> {
         const contentType = this.getContetType(res);
@@ -215,6 +246,9 @@ export class HttpClient {
             return res.arrayBuffer();
         }
     };
+
+
+    //! Message extraction
 
     protected static getMessage(body: any): string | undefined {
         if (typeof body === 'string') return body;
